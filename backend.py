@@ -29,33 +29,28 @@ def load_and_process_data(file_name):
     except Exception as e:
         raise Exception(f"Error processing file: {e}")
 
-# File path (Update the path as per your system)
-file_name = 'C:/Users/TECHNOSELLERS/Desktop/cryptovision_ai/lib/services/BTC_All_graph_coinmarketcap.csv'
+# File paths (Update the path as per your system)
+file_names = {
+    'bitcoin': 'C:/Users/TECHNOSELLERS/Desktop/cryptovision_ai/lib/services/BTC_All_graph_coinmarketcap.csv',
+    'ethereum': 'C:/Users/TECHNOSELLERS/Desktop/cryptovision_ai/lib/services/ETH_All_graph_coinmarketcap.csv'
+}
 
-# Print current working directory for debugging
-print(f"Current working directory: {os.getcwd()}")
+# Train the model for both coins at the beginning
+models = {}
 
-# Check if file exists in the provided path
-if not os.path.exists(file_name):
-    print(f"File does not exist at {file_name}")
-else:
-    print(f"File found: {file_name}")
+def train_model(coin):
+    file_to_process = file_names[coin]
+    data = load_and_process_data(file_to_process)
+    X = data[['monthly_open', 'monthly_high', 'monthly_low', 'volume', 'marketCap']]
+    y = data['monthly_close']
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    rf_model = RandomForestRegressor(n_estimators=200, random_state=42)
+    rf_model.fit(X_train, y_train)
+    return rf_model
 
-# Load and process data
-try:
-    data = load_and_process_data(file_name)
-except Exception as e:
-    print(f"Error loading file: {str(e)}")
-    exit()
-
-# Prepare the feature set (X) and target variable (y)
-X = data[['monthly_open', 'monthly_high', 'monthly_low', 'volume', 'marketCap']]
-y = data['monthly_close']
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-# Train the model
-rf_model = RandomForestRegressor(n_estimators=200, random_state=42)
-rf_model.fit(X_train, y_train)
+# Train models for both Bitcoin and Ethereum
+models['bitcoin'] = train_model('bitcoin')
+models['ethereum'] = train_model('ethereum')
 
 # API route to predict closing price
 @app.route('/predict', methods=['POST'])
@@ -68,13 +63,17 @@ def predict():
         monthly_low = float(data_input['low'])
         volume = float(data_input['volume'])
         marketCap = float(data_input['marketCap'])
+        selected_coin = data_input['coin']  # Get the selected coin from the request
+
+        if selected_coin not in models:
+            return jsonify({'error': 'Invalid coin selected'}), 400
 
         # Create a DataFrame for manual input data
         manual_input_df = pd.DataFrame([[monthly_open, monthly_high, monthly_low, volume, marketCap]],
                                        columns=['monthly_open', 'monthly_high', 'monthly_low', 'volume', 'marketCap'])
 
         # Predict the closing price
-        predicted_price = rf_model.predict(manual_input_df)[0]
+        predicted_price = models[selected_coin].predict(manual_input_df)[0]
 
         return jsonify({'predicted_closing_price': round(predicted_price, 2)}), 200
     except Exception as e:
